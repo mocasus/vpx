@@ -36,6 +36,13 @@ async def connect(country: str = Query(None), authorization: str = Header(None))
         proxy.set_external("tun0")
     return result
 
+@app.post("/disconnect")
+async def disconnect(authorization: str = Header(None)):
+    _check_auth(authorization)
+    result = vpn.disconnect()
+    proxy.set_external("eth0")
+    return result
+
 @app.post("/rotate")
 async def rotate(country: str = Query(None), authorization: str = Header(None)):
     _check_auth(authorization)
