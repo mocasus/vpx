@@ -2,48 +2,19 @@
 
 # VPNX
 
-**VPN Proxy Exchange**
+**VPN Proxy Exchange** — self-hosted rotating VPN proxy in one Docker container.
 
-Self-hosted rotating VPN proxy in a single Docker container.
-Free public VPN servers → SOCKS5 + HTTP proxy → REST API control.
+Free public VPN servers (VPN Gate) → SOCKS5 + HTTP proxy → REST API control.
 
 [![Version](https://img.shields.io/badge/v1.0.0-blue?style=flat-square)](https://github.com/mocasus/vpnx)
+[![npm](https://img.shields.io/badge/npm-@mocasus/vpnx-CB3837?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@mocasus/vpnx)
+[![PyPI](https://img.shields.io/badge/pypi-vpnx--cli-3775A9?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/vpnx-cli/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)]()
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
 </div>
 
 ---
-
-## How It Works
-
-```
-┌─────────────────────────────────────────────────┐
-│                   Docker Container               │
-│                                                   │
-│   ┌─────────┐    ┌───────────┐    ┌───────────┐  │
-│   │ OpenVPN │───▶│  tun0     │───▶│   Dante   │  │
-│   │ (VPN    │    │  (tunnel  │    │  SOCKS5   │  │
-│   │  Gate)  │    │   iface)  │    │   :1080   │  │
-│   └─────────┘    └───────────┘    └─────┬─────┘  │
-│                                         │        │
-│                                   ┌─────▼─────┐  │
-│                                   │ TinyProxy │  │
-│                                   │  HTTP     │  │
-│                                   │  :8080    │  │
-│                                   └─────┬─────┘  │
-│                                         │        │
-│   ┌─────────────────────────────────────▼──────┐ │
-│   │            FastAPI :8000                    │ │
-│   │  /connect  /rotate  /status  /locations    │ │
-│   └────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────┘
-         ▲                              ▲
-         │ curl / SDK                   │ curl --socks5 / -x
-    Your API client              Your proxy client
-```
-
-VPNX downloads free OpenVPN configs from [VPN Gate](https://www.vpngate.net), creates a VPN tunnel, and routes all proxy traffic through it. Rotate servers or switch countries via REST API — no VPN client needed on your machine.
 
 ## Quick Start
 
@@ -55,96 +26,53 @@ docker run -d --name vpnx \
   mocasus/vpnx:latest
 ```
 
-That's it. VPNX is now running:
-- **SOCKS5 proxy** → `localhost:1080`
-- **HTTP proxy** → `localhost:8080`
-- **REST API** → `localhost:8000`
+Or use the CLI wrapper:
 
-## Install (CLI wrapper)
+```bash
+npm install -g @mocasus/vpnx && vpnx your-secret    # npm
+pip install vpnx-cli && vpnx your-secret             # pip
+```
 
-| Method | Command |
-|--------|---------|
-| npm | `npm install -g @mocasus/vpnx && vpnx your-secret` |
-| pip | `pip install vpnx-cli && vpnx your-secret` |
-| Docker Compose | `git clone https://github.com/mocasus/vpnx && cd vpnx && docker compose up -d` |
+**Ports:** SOCKS5 `:1080` · HTTP `:8080` · API `:8000`
 
-The CLI wrapper generates a token, pulls the image, and starts the container with the right flags.
+## API
 
-## API Reference
-
-All endpoints require `Authorization: Bearer <API_TOKEN>` header.
+All endpoints require `Authorization: Bearer <API_TOKEN>`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/login` | Get proxy credentials (username/password) |
-| `GET` | `/status` | VPN connection + proxy status |
-| `POST` | `/connect?country=JP` | Connect to VPN (optional country code) |
-| `POST` | `/rotate?country=US` | Rotate to a different VPN server |
-| `GET` | `/locations` | List available VPN servers by country |
-
-### Examples
+| `POST` | `/login` | Get proxy credentials |
+| `GET` | `/status` | VPN + proxy status |
+| `POST` | `/connect?country=JP` | Connect to VPN |
+| `POST` | `/rotate?country=US` | Rotate VPN server |
+| `GET` | `/locations` | List VPN servers |
 
 ```bash
-# Get proxy credentials
-curl -X POST http://localhost:8000/login \
-  -H "Authorization: Bearer your-secret"
-
-# Connect to Japan VPN
-curl -X POST "http://localhost:8000/connect?country=JP" \
-  -H "Authorization: Bearer your-secret"
-
-# Rotate to a US server
-curl -X POST "http://localhost:8000/rotate?country=US" \
-  -H "Authorization: Bearer your-secret"
-
-# Check status
-curl http://localhost:8000/status \
-  -H "Authorization: Bearer your-secret"
+curl -X POST http://localhost:8000/connect?country=JP -H "Authorization: Bearer your-secret"
 ```
 
 ## Using the Proxy
 
 ```bash
-# SOCKS5
-curl --socks5 user:pass@localhost:1080 https://ifconfig.me
-
-# HTTP proxy
-curl -x http://user:pass@localhost:8080 https://ifconfig.me
+curl --socks5 user:pass@host:1080 https://ifconfig.me   # SOCKS5
+curl -x http://user:pass@host:8080 https://ifconfig.me    # HTTP
 ```
 
-Works with any tool that supports SOCKS5 or HTTP proxies — browsers, scrapers, HTTP clients, etc.
-
-## Configuration
+## Config
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `API_TOKEN` | *(required)* | Bearer token for API authentication |
-| `SOCKS_USER` | `vpnx<random>` | SOCKS5/HTTP proxy username |
-| `SOCKS_PASS` | `<random>` | SOCKS5/HTTP proxy password |
+| `API_TOKEN` | *(required)* | API authentication token |
+| `SOCKS_USER` | `vpnx<random>` | Proxy username |
+| `SOCKS_PASS` | `<random>` | Proxy password |
 
-## Requirements
-
-- Docker (or Podman with `--cap-add=NET_ADMIN`)
-- Linux host with `/dev/net/tun` available
-- `NET_ADMIN` capability (for creating TUN interfaces)
-
-## Tech Stack
-
-- **OpenVPN** — VPN tunnel via VPN Gate public servers
-- **Dante** — SOCKS5 proxy with username/password auth
-- **TinyProxy** — HTTP proxy with BasicAuth
-- **FastAPI** — REST API for control plane
-- **Supervisor** — Process management inside container
+**Requires:** Docker with `NET_ADMIN` + `/dev/net/tun` (Linux host)
 
 ---
 
-<div align="center">
-
 ## 🇮🇩 Bahasa Indonesia
 
-**VPN Proxy Exchange** — proxy VPN berputar dalam satu container Docker.
-
-Unduh konfigurasi OpenVPN publik gratis (VPN Gate), arahkan lalu lintas melalui SOCKS5 dan HTTP proxy, kontrol via REST API.
+Proxy VPN berputar dalam satu container Docker. Gratis, tanpa akun — pakai server VPN publik dari VPN Gate.
 
 ### Mulai Cepat
 
@@ -156,13 +84,12 @@ docker run -d --name vpnx \
   mocasus/vpnx:latest
 ```
 
-### Pemasangan
+Atau via CLI:
 
-| Metode | Perintah |
-|--------|----------|
-| npm | `npm install -g @mocasus/vpnx && vpnx rahasia-anda` |
-| pip | `pip install vpnx-cli && vpnx rahasia-anda` |
-| Docker Compose | `git clone https://github.com/mocasus/vpnx && cd vpnx && docker compose up -d` |
+```bash
+npm install -g @mocasus/vpnx && vpnx rahasia-anda    # npm
+pip install vpnx-cli && vpnx rahasia-anda             # pip
+```
 
 ### API
 
@@ -170,53 +97,18 @@ Semua endpoint butuh header `Authorization: Bearer <API_TOKEN>`.
 
 | Method | Endpoint | Keterangan |
 |--------|----------|------------|
-| `POST` | `/login` | Dapatkan kredensial proxy (user/pass) |
+| `POST` | `/login` | Dapat kredensial proxy |
 | `GET` | `/status` | Status VPN + proxy |
-| `POST` | `/connect?country=JP` | Hubungkan ke VPN (kode negara opsional) |
-| `POST` | `/rotate?country=US` | Rotasi ke server VPN lain |
-| `GET` | `/locations` | Daftar server VPN per negara |
-
-### Contoh
-
-```bash
-# Dapatkan kredensial proxy
-curl -X POST http://localhost:8000/login \
-  -H "Authorization: Bearer rahasia-anda"
-
-# Hubungkan ke VPN Jepang
-curl -X POST "http://localhost:8000/connect?country=JP" \
-  -H "Authorization: Bearer rahasia-anda"
-
-# Rotasi ke server US
-curl -X POST "http://localhost:8000/rotate?country=US" \
-  -H "Authorization: Bearer rahasia-anda"
-```
+| `POST` | `/connect?country=JP` | Hubungkan ke VPN |
+| `POST` | `/rotate?country=US` | Rotasi server VPN |
+| `GET` | `/locations` | Daftar server VPN |
 
 ### Menggunakan Proxy
 
 ```bash
-# SOCKS5
-curl --socks5 user:pass@localhost:1080 https://ifconfig.me
-
-# HTTP proxy
-curl -x http://user:pass@localhost:8080 https://ifconfig.me
+curl --socks5 user:pass@host:1080 https://ifconfig.me   # SOCKS5
+curl -x http://user:pass@host:8080 https://ifconfig.me    # HTTP
 ```
-
-### Konfigurasi
-
-| Env Var | Default | Keterangan |
-|---------|---------|------------|
-| `API_TOKEN` | *(wajib)* | Token Bearer untuk autentikasi API |
-| `SOCKS_USER` | `vpnx<random>` | Username proxy SOCKS5/HTTP |
-| `SOCKS_PASS` | `<random>` | Password proxy SOCKS5/HTTP |
-
-### Kebutuhan Sistem
-
-- Docker (atau Podman dengan `--cap-add=NET_ADMIN`)
-- Host Linux dengan `/dev/net/tun`
-- Capability `NET_ADMIN` (untuk membuat interface TUN)
-
-</div>
 
 ---
 
