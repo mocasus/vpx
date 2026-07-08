@@ -12,6 +12,7 @@ connect/rotate/status work identically regardless of source.
 
 import os
 import re
+import asyncio
 import time
 import base64
 import subprocess
@@ -253,7 +254,7 @@ class VPNManager:
 
     # ── Connect / Disconnect / Rotate ────────────────────────────────
 
-    def _try_connect(self, server):
+    async def _try_connect(self, server):
         """Attempt to connect to a single server. Returns True on success."""
         config = self._get_config(server)
         if not config:
@@ -264,8 +265,6 @@ class VPNManager:
         with open(path, "w") as f:
             f.write(config)
 
-        # Kill ALL stale openvpn processes before starting new one.
-        # PID file alone is unreliable — old process may have overwritten it.
         self._kill_all_openvpn()
 
         try:
@@ -275,13 +274,12 @@ class VPNManager:
                 capture_output=True, timeout=5
             )
             for _ in range(30):
-                time.sleep(1)
+                await asyncio.sleep(1)
                 if os.path.exists(PID_FILE):
                     with open(PID_FILE) as f:
                         pid = f.read().strip()
                     try:
                         os.kill(int(pid), 0)
-                        # Verify tunnel is up (OpenVPN writes PID before tunnel ready)
                         tun = subprocess.run(
                             ["ip", "-4", "addr", "show", "tun0"],
                             capture_output=True, text=True
@@ -289,14 +287,18 @@ class VPNManager:
                         if "inet " in tun.stdout:
                             self.connected = True
                             self.current = server
+                            log.info(f"Connected to {server['hostname']} ({server['country_name']})")
                             return True
                     except ProcessLookupError:
-                        break  # OpenVPN died — server rejected
+                        log.warning(f"Server {server['hostname']} rejected connection")
+                        break
                     except Exception:
                         pass
             self._kill_openvpn()
+            log.warning(f"Timeout connecting to {server['hostname']}")
             return False
-        except Exception:
+        except Exception as e:
+            log.warning(f"Failed to start openvpn for {server['hostname']}: {e}")
             return False
 
     def _kill_openvpn(self):
@@ -337,9 +339,9 @@ class VPNManager:
         else:
             candidates = self.servers[:5]
 
-        # Try up to 3 servers
-        for server in candidates[:3]:
-            if self._try_connect(server):
+        # Try up to 5 servers
+        for server in candidates[:5]:
+            if await self._try_connect(server):
                 return {
                     "status": "connected",
                     "server": server["hostname"],
@@ -348,12 +350,12 @@ class VPNManager:
                     "source": self.source,
                 }
             self._kill_openvpn()
-            time.sleep(1)
+            await asyncio.sleep(1)
 
         return {"status": "failed", "error": "All servers failed (free VPN servers may be overloaded)"}
 
     def disconnect(self):
-        self._kill_openvpn()
+        self._kill_all_openvpn()
         self.connected = False
         self.current = None
         return {"status": "disconnected"}
@@ -366,8 +368,8 @@ class VPNManager:
                        if s["country"].upper() == country.upper()]
                       if country else self.servers)
         candidates = [s for s in candidates if s["hostname"] != old]
-        for server in candidates[:3]:
-            if self._try_connect(server):
+        for server in candidates[:10]:
+            if await self._try_connect(server):
                 return {
                     "status": "connected",
                     "server": server["hostname"],
@@ -376,7 +378,7 @@ class VPNManager:
                     "source": self.source,
                 }
             self._kill_openvpn()
-            time.sleep(1)
+            await asyncio.sleep(1)
         return {"status": "failed", "error": "All alternative servers failed"}
 
     def status(self):
@@ -387,3 +389,30 @@ class VPNManager:
             "available": len(self.servers),
             "source": self.source,
         }
+
+    def is_tunnel_alive(self):
+        """Check if tun0 interface has an IP (VPN tunnel is up)."""
+        if not self.connected:
+            return False
+        try:
+            out = subprocess.run(
+                ["ip", "-4", "addr", "show", "tun0"],
+                capture_output=True, text=True, timeout=5
+            )
+            return "inet " in out.stdout
+        except Exception:
+            return False
+
+    async def watchdog(self, interval=30):
+        """Background task: reconnect if VPN tunnel drops."""
+        while True:
+            await asyncio.sleep(interval)
+            if self.connected and not self.is_tunnel_alive():
+                log.warning("VPN tunnel dropped — attempting reconnect")
+                self.connected = False
+                self._kill_all_openvpn()
+                result = await self.connect()
+                if result.get("status") == "connected":
+                    log.info(f"Watchdog reconnected to {result['server']}")
+                else:
+                    log.error("Watchdog reconnect failed")

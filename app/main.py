@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -7,11 +8,12 @@ from app.vpn import VPNManager
 from app.proxy import ProxyManager
 from app.auth import get_api_token
 
-app = FastAPI(title="VPNX", version="2.0.0", docs_url="/docs", redoc_url=None)
+app = FastAPI(title="VPNX", version="2.1.0", docs_url="/docs", redoc_url=None)
 
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "").split(",") if os.environ.get("CORS_ORIGINS") else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -22,6 +24,7 @@ proxy = ProxyManager()
 @app.on_event("startup")
 async def startup():
     proxy.load()
+    asyncio.create_task(vpn.watchdog(interval=30))
 
 def _check_auth(authorization: str = Header(None)):
     token = None
@@ -39,6 +42,10 @@ async def login(authorization: str = Header(None)):
 async def status(authorization: str = Header(None)):
     _check_auth(authorization)
     return {"vpn": vpn.status(), "proxy": proxy.info()}
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "vpn": vpn.status()}
 
 @app.post("/connect")
 async def connect(country: str = Query(None), authorization: str = Header(None)):
