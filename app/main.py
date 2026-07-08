@@ -24,13 +24,9 @@ proxy = ProxyManager()
 @app.on_event("startup")
 async def startup():
     proxy.load()
-    rotate_interval = int(os.environ.get("ROTATE_INTERVAL", 0))
-    rotate_country = os.environ.get("ROTATE_COUNTRY", None)
-    asyncio.create_task(vpn.watchdog(
-        interval=30,
-        rotate_interval=rotate_interval,
-        rotate_country=rotate_country,
-    ))
+    vpn.rotate_interval = int(os.environ.get("ROTATE_INTERVAL", 0))
+    vpn.rotate_country = os.environ.get("ROTATE_COUNTRY", None)
+    asyncio.create_task(vpn.watchdog(interval=30))
 
 def _check_auth(authorization: str = Header(None)):
     token = None
@@ -52,6 +48,30 @@ async def status(authorization: str = Header(None)):
 @app.get("/health")
 async def health():
     return {"status": "ok", "vpn": vpn.status()}
+
+@app.get("/rotate-config")
+async def get_rotate_config(authorization: str = Header(None)):
+    _check_auth(authorization)
+    return {
+        "interval": vpn.rotate_interval,
+        "country": vpn.rotate_country,
+    }
+
+@app.post("/rotate-config")
+async def set_rotate_config(
+    interval: int = Query(None),
+    country: str = Query(None),
+    authorization: str = Header(None),
+):
+    _check_auth(authorization)
+    if interval is not None:
+        vpn.rotate_interval = max(0, interval)
+    if country is not None:
+        vpn.rotate_country = country.upper() if country else None
+    return {
+        "interval": vpn.rotate_interval,
+        "country": vpn.rotate_country,
+    }
 
 @app.post("/connect")
 async def connect(country: str = Query(None), authorization: str = Header(None)):

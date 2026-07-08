@@ -45,6 +45,8 @@ class VPNManager:
             ("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
         ]
         self._html_sid = None
+        self.rotate_interval: int = 0
+        self.rotate_country: str | None = None
 
     # ── Source 1: VPN Gate CSV API ──────────────────────────────────
 
@@ -403,13 +405,11 @@ class VPNManager:
         except Exception:
             return False
 
-    async def watchdog(self, interval=30, rotate_interval=0, rotate_country=None):
-        """Background task: reconnect on drop + auto-rotate if configured.
+    async def watchdog(self, interval=30):
+        """Background task: reconnect on drop + auto-rotate.
 
-        Args:
-            interval: Health check interval in seconds.
-            rotate_interval: Auto-rotate interval in seconds (0 = disabled).
-            rotate_country: ISO country code for auto-rotate (None = any).
+        Reads self.rotate_interval and self.rotate_country — hot-reloadable
+        via /api/rotate-config.
         """
         last_rotate = time.time()
         while True:
@@ -420,7 +420,7 @@ class VPNManager:
                 log.warning("VPN tunnel dropped — attempting reconnect")
                 self.connected = False
                 self._kill_all_openvpn()
-                result = await self.connect(country=rotate_country)
+                result = await self.connect(country=self.rotate_country)
                 if result.get("status") == "connected":
                     log.info(f"Watchdog reconnected to {result['server']}")
                 else:
@@ -429,11 +429,11 @@ class VPNManager:
                 continue
 
             # Auto-rotate
-            if rotate_interval > 0 and self.connected:
+            if self.rotate_interval > 0 and self.connected:
                 elapsed = time.time() - last_rotate
-                if elapsed >= rotate_interval:
+                if elapsed >= self.rotate_interval:
                     old = self.current["hostname"] if self.current else "?"
-                    result = await self.rotate(country=rotate_country)
+                    result = await self.rotate(country=self.rotate_country)
                     if result.get("status") == "connected":
                         log.info(f"Auto-rotate: {old} → {result['server']} ({result['country']})")
                     else:
