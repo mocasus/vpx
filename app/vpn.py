@@ -110,14 +110,20 @@ class VPNManager:
                         pid = f.read().strip()
                     try:
                         os.kill(int(pid), 0)
-                        self.connected = True
-                        self.current = server
-                        return {
-                            "status": "connected",
-                            "server": server["hostname"],
-                            "ip": server["ip"],
-                            "country": server["country_name"]
-                        }
+                        # Wait for tun0 to get an IP (OpenVPN writes PID before tunnel is ready)
+                        tun_ready = subprocess.run(
+                            ["ip", "-4", "addr", "show", "tun0"],
+                            capture_output=True, text=True
+                        )
+                        if "inet " in tun_ready.stdout:
+                            self.connected = True
+                            self.current = server
+                            return {
+                                "status": "connected",
+                                "server": server["hostname"],
+                                "ip": server["ip"],
+                                "country": server["country_name"]
+                            }
                     except:
                         pass
             return {"status": "failed", "error": "OpenVPN timeout"}
