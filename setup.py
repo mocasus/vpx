@@ -1,7 +1,7 @@
 from setuptools import setup
 setup(
     name="vpnx-cli",
-    version="1.0.0",
+    version="2.0.0",
     description="VPN Proxy Exchange — CLI wrapper for the VPNX Docker container",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",

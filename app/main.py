@@ -3,7 +3,7 @@ from app.vpn import VPNManager
 from app.proxy import ProxyManager
 from app.auth import get_api_token
 
-app = FastAPI(title="VPNX", version="1.0.0")
+app = FastAPI(title="VPNX", version="2.0.0")
 vpn = VPNManager()
 proxy = ProxyManager()
 

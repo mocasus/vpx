@@ -47,7 +47,7 @@ cat > /config/credentials.json << EOF
 EOF
 
 echo "============================================"
-echo "  VPNX - VPN Proxy Exchange v1.0.0"
+echo "  VPNX - VPN Proxy Exchange v2.0.0"
 echo "============================================"
 echo "API:    http://0.0.0.0:8000"
 echo "Token:  $API_TOKEN"
