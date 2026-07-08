@@ -103,7 +103,7 @@ class VPNManager:
                  "--writepid", PID_FILE, "--log", "/tmp/openvpn.log"],
                 capture_output=True, timeout=5
             )
-            for _ in range(20):
+            for _ in range(30):
                 time.sleep(1)
                 if os.path.exists(PID_FILE):
                     with open(PID_FILE) as f:
