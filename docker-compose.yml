@@ -1,0 +1,20 @@
+services:
+  vpx:
+    build: .
+    container_name: vpx
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    ports:
+      - "1080:1080"
+      - "8080:8080"
+      - "8000:8000"
+    environment:
+      - API_TOKEN=change-me
+    volumes:
+      - vpn-configs:/config/vpn
+    restart: unless-stopped
+
+volumes:
+  vpn-configs:

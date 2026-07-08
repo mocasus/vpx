@@ -1,0 +1,9 @@
+.git
+node_modules
+__pycache__
+*.pyc
+*.egg-info
+.env
+dist/
+build/
+README.md
