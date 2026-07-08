@@ -1,4 +1,4 @@
-import os, json, subprocess
+import os, json, subprocess, time
 
 CRED_FILE = "/config/credentials.json"
 DANTE_CONF = "/config/danted.conf"
@@ -34,3 +34,4 @@ class ProxyManager:
                 else:
                     f.write(line)
         subprocess.run(["pkill", "danted"], capture_output=True)
+        time.sleep(2)
