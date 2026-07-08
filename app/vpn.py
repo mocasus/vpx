@@ -264,9 +264,9 @@ class VPNManager:
         with open(path, "w") as f:
             f.write(config)
 
-        # Clean stale PID
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
+        # Kill ALL stale openvpn processes before starting new one.
+        # PID file alone is unreliable — old process may have overwritten it.
+        self._kill_all_openvpn()
 
         try:
             subprocess.run(
@@ -309,6 +309,12 @@ class VPNManager:
                 pass
             os.remove(PID_FILE)
 
+    def _kill_all_openvpn(self):
+        """Kill ALL openvpn processes — PID file + pkill safety net."""
+        self._kill_openvpn()
+        subprocess.run(["pkill", "-9", "openvpn"], capture_output=True)
+        time.sleep(1)
+
     async def connect(self, country=None, idx=None):
         if not self.servers:
             await self.fetch_servers()
@@ -316,8 +322,9 @@ class VPNManager:
             return {"status": "error", "error": "No servers available from any source"}
 
         if self.connected:
-            self.disconnect()
-            time.sleep(2)
+            self._kill_all_openvpn()
+            self.connected = False
+            self.current = None
 
         # Build candidate list
         if idx is not None and idx < len(self.servers):
