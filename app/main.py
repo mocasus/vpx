@@ -25,7 +25,12 @@ proxy = ProxyManager()
 async def startup():
     proxy.load()
     rotate_interval = int(os.environ.get("ROTATE_INTERVAL", 0))
-    asyncio.create_task(vpn.watchdog(interval=30, rotate_interval=rotate_interval))
+    rotate_country = os.environ.get("ROTATE_COUNTRY", None)
+    asyncio.create_task(vpn.watchdog(
+        interval=30,
+        rotate_interval=rotate_interval,
+        rotate_country=rotate_country,
+    ))
 
 def _check_auth(authorization: str = Header(None)):
     token = None
