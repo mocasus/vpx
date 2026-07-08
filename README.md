@@ -16,6 +16,24 @@ Free public VPN servers (VPN Gate) → SOCKS5 + HTTP proxy → REST API control.
 
 ---
 
+## What is this?
+
+VPNX turns any Docker host into a **rotating VPN proxy** — no VPN subscription, no account needed.
+
+It grabs free OpenVPN configs from [VPN Gate](https://www.vpngate.net), creates a VPN tunnel, and exposes it as a standard SOCKS5 + HTTP proxy you can use from any tool. Want to switch country or rotate to a new server? One API call.
+
+**Why?** Public VPN servers are free but annoying to use — you have to download configs, pick a server, manage connections. VPNX does all that automatically and gives you clean proxy endpoints + an API to control everything.
+
+**What you get:**
+- SOCKS5 proxy with auth (use from curl, browsers, scrapers, anything)
+- HTTP proxy with auth
+- REST API to connect, rotate, and check status
+- Works on any Linux Docker host — no VPN client needed on your machine
+
+**Use cases:** web scraping with IP rotation, geo-testing, bypassing rate limits, hiding your origin IP.
+
+---
+
 ## Quick Start
 
 ```bash
