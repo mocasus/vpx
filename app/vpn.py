@@ -1,65 +1,43 @@
-import os, base64, subprocess, time, httpx
+import os, time, json, base64, subprocess, urllib.request
 
-VPNGATE_API = "http://www.vpngate.net/api/iphone/"
-CONFIG_DIR = os.environ.get("VPN_CONFIG_DIR", "/config/vpn")
+API_URL = "https://www.vpngate.net/api/iphone/"
+CONFIG_DIR = "/config/vpn"
 PID_FILE = "/tmp/openvpn.pid"
 
 class VPNManager:
     def __init__(self):
         self.servers = []
-        self.current = None
         self.connected = False
+        self.current = None
 
     async def fetch_servers(self):
-        async with httpx.AsyncClient() as c:
-            r = await c.get(VPNGATE_API, timeout=30)
-            r.raise_for_status()
-        lines = r.text.strip().split("\n")
-        headers = None
-        servers = []
-        for line in lines:
-            line = line.strip()
-            if not line or line[0] in "*$":
-                continue
-            if line.startswith("#"):
-                headers = line[1:].split(",")
-                continue
-            parts = line.split(",")
-            if len(parts) < 15 or not headers:
-                continue
-            try:
-                s = {}
-                for i, h in enumerate(headers):
-                    h = h.strip()
-                    v = parts[i] if i < len(parts) else ""
-                    if h in ("Score", "Ping", "Speed", "NumVpnSessions",
-                             "Uptime", "TotalUsers", "TotalTraffic"):
-                        v = int(v) if v else 0
-                    s[h] = v
-                s["hostname"] = s.get("HostName", "")
-                s["ip"] = s.get("IP", "")
-                s["country"] = s.get("CountryShort", "")
-                s["country_name"] = s.get("CountryLong", "")
-                s["config_b64"] = s.get("OpenVPN_ConfigData_Base64", "")
-                if s["config_b64"] and s["country"]:
-                    servers.append(s)
-            except:
-                continue
-        servers.sort(key=lambda x: (-x.get("Speed", 0), x.get("Ping", 999)))
-        self.servers = servers
-        return servers
+        try:
+            req = urllib.request.Request(API_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                lines = r.read().decode("utf-8", errors="ignore").splitlines()
+            for line in lines[2:]:  # skip header rows
+                parts = line.split(",")
+                if len(parts) >= 15 and parts[14]:
+                    self.servers.append({
+                        "hostname": parts[0],
+                        "ip": parts[1],
+                        "score": int(parts[2]) if parts[2] else 0,
+                        "ping": int(parts[3]) if parts[3] else 9999,
+                        "speed": int(parts[4]) if parts[4] else 0,
+                        "country": parts[6],
+                        "country_name": parts[5],
+                        "config_b64": parts[14],
+                    })
+            # sort by speed descending
+            self.servers.sort(key=lambda s: s.get("speed", 0), reverse=True)
+        except Exception:
+            pass
+        return len(self.servers)
 
     def get_locations(self, country=None):
-        if not self.servers:
-            return []
         if country:
-            return [
-                {"hostname": s["hostname"], "ip": s["ip"],
-                 "speed": s.get("Speed", 0), "ping": s.get("Ping", 0),
-                 "country": s["country_name"]}
-                for s in self.servers
-                if s["country"].upper() == country.upper()
-            ][:20]
+            return [s for s in self.servers
+                    if s["country"].upper() == country.upper()]
         seen = set()
         locs = []
         for s in self.servers:
@@ -68,35 +46,24 @@ class VPNManager:
                 seen.add(c)
                 locs.append({
                     "country": c, "name": s["country_name"],
-                    "speed": s.get("Speed", 0),
+                    "speed": s.get("speed", 0),
                     "servers": sum(1 for x in self.servers if x["country"] == c)
                 })
         return locs
 
-    async def connect(self, country=None, idx=None):
-        if not self.servers:
-            await self.fetch_servers()
-        if not self.servers:
-            return {"status": "error", "error": "No servers available"}
-        if self.connected:
-            self.disconnect()
-            time.sleep(2)
-        if idx is not None and idx < len(self.servers):
-            server = self.servers[idx]
-        elif country:
-            cands = [s for s in self.servers
-                     if s["country"].upper() == country.upper()]
-            server = cands[0] if cands else self.servers[0]
-        else:
-            server = self.servers[0]
+    def _try_connect(self, server):
+        """Attempt to connect to a single server. Returns True on success."""
         try:
             cfg = base64.b64decode(server["config_b64"]).decode()
-        except:
-            return {"status": "error", "error": "Failed to decode config"}
+        except Exception:
+            return False
         os.makedirs(CONFIG_DIR, exist_ok=True)
         path = os.path.join(CONFIG_DIR, "current.ovpn")
         with open(path, "w") as f:
             f.write(cfg)
+        # clean stale pid
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
         try:
             subprocess.run(
                 ["openvpn", "--config", path, "--daemon",
@@ -110,32 +77,73 @@ class VPNManager:
                         pid = f.read().strip()
                     try:
                         os.kill(int(pid), 0)
-                        # Wait for tun0 to get an IP (OpenVPN writes PID before tunnel is ready)
-                        tun_ready = subprocess.run(
+                        # Check tun0 has IP (OpenVPN writes PID before tunnel ready)
+                        tun = subprocess.run(
                             ["ip", "-4", "addr", "show", "tun0"],
                             capture_output=True, text=True
                         )
-                        if "inet " in tun_ready.stdout:
+                        if "inet " in tun.stdout:
                             self.connected = True
                             self.current = server
-                            return {
-                                "status": "connected",
-                                "server": server["hostname"],
-                                "ip": server["ip"],
-                                "country": server["country_name"]
-                            }
-                    except:
+                            return True
+                    except ProcessLookupError:
+                        # OpenVPN died — server rejected
+                        break
+                    except Exception:
                         pass
-            return {"status": "failed", "error": "OpenVPN timeout"}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+            # timeout or dead — kill stale openvpn
+            self._kill_openvpn()
+            return False
+        except Exception:
+            return False
+
+    def _kill_openvpn(self):
+        if os.path.exists(PID_FILE):
+            try:
+                with open(PID_FILE) as f:
+                    pid = f.read().strip()
+                subprocess.run(["kill", pid], capture_output=True)
+            except Exception:
+                pass
+            os.remove(PID_FILE)
+
+    async def connect(self, country=None, idx=None):
+        if not self.servers:
+            await self.fetch_servers()
+        if not self.servers:
+            return {"status": "error", "error": "No servers available"}
+        if self.connected:
+            self.disconnect()
+            time.sleep(2)
+
+        # Build candidate list
+        if idx is not None and idx < len(self.servers):
+            candidates = [self.servers[idx]]
+        elif country:
+            candidates = [s for s in self.servers
+                           if s["country"].upper() == country.upper()]
+            if not candidates:
+                candidates = self.servers[:5]
+        else:
+            candidates = self.servers[:5]
+
+        # Try up to 3 servers
+        for server in candidates[:3]:
+            if self._try_connect(server):
+                return {
+                    "status": "connected",
+                    "server": server["hostname"],
+                    "ip": server["ip"],
+                    "country": server["country_name"]
+                }
+            # Clean up before retry
+            self._kill_openvpn()
+            time.sleep(1)
+
+        return {"status": "failed", "error": "All servers failed (free VPN servers may be overloaded)"}
 
     def disconnect(self):
-        if os.path.exists(PID_FILE):
-            with open(PID_FILE) as f:
-                pid = f.read().strip()
-            subprocess.run(["kill", pid], capture_output=True)
-            os.remove(PID_FILE)
+        self._kill_openvpn()
         self.connected = False
         self.current = None
         return {"status": "disconnected"}
@@ -144,14 +152,22 @@ class VPNManager:
         if not self.servers:
             await self.fetch_servers()
         old = self.current["hostname"] if self.current else None
-        cands = ([s for s in self.servers
-                  if s["country"].upper() == country.upper()]
-                 if country else self.servers)
-        for s in cands:
-            if s["hostname"] != old:
-                i = self.servers.index(s)
-                return await self.connect(idx=i)
-        return {"status": "error", "error": "No alternative servers"}
+        candidates = ([s for s in self.servers
+                       if s["country"].upper() == country.upper()]
+                      if country else self.servers)
+        # filter out current server
+        candidates = [s for s in candidates if s["hostname"] != old]
+        for server in candidates[:3]:
+            if self._try_connect(server):
+                return {
+                    "status": "connected",
+                    "server": server["hostname"],
+                    "ip": server["ip"],
+                    "country": server["country_name"]
+                }
+            self._kill_openvpn()
+            time.sleep(1)
+        return {"status": "failed", "error": "All alternative servers failed"}
 
     def status(self):
         return {
