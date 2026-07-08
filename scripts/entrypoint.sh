@@ -15,7 +15,7 @@ useradd -r -s /bin/false "$SOCKS_USER" 2>/dev/null || true
 echo "$SOCKS_USER:$SOCKS_PASS" | chpasswd
 
 cat > /config/danted.conf << EOF
-loglevel: error
+logoutput: stderr
 internal: 0.0.0.0 port = 1080
 external: $DEFAULT_IF
 socksmethod: username
