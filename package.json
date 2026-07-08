@@ -1,5 +1,5 @@
 {
-  "name": "vpnx",
+  "name": "@mocasus/vpnx",
   "version": "1.0.0",
   "description": "VPN Proxy Exchange",
   "bin": { "vpnx": "./cli.js" },
