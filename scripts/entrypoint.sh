@@ -4,8 +4,8 @@ set -e
 DEFAULT_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
 DEFAULT_IF=${DEFAULT_IF:-eth0}
 
-SOCKS_USER="vpnx$(openssl rand -hex 4)"
-SOCKS_PASS=$(openssl rand -hex 12)
+SOCKS_USER="${SOCKS_USER:-vpnx$(openssl rand -hex 4)}"
+SOCKS_PASS="${SOCKS_PASS:-$(openssl rand -hex 12)}"
 API_TOKEN="${API_TOKEN:-$(openssl rand -hex 16)}"
 
 mkdir -p /dev/net /config/vpn

@@ -42,7 +42,7 @@ class ProxyManager:
                 pass
             time.sleep(1)
         if not ext:
-            return  # keep existing config — don't break danted
+            return
         with open(DANTE_CONF) as f:
             lines = f.readlines()
         with open(DANTE_CONF, "w") as f:
@@ -51,5 +51,6 @@ class ProxyManager:
                     f.write(f"external: {ext}\n")
                 else:
                     f.write(line)
+        # Kill and wait for clean exit before supervisor restarts it
         subprocess.run(["pkill", "danted"], capture_output=True)
-        time.sleep(2)
+        time.sleep(3)
