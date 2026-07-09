@@ -27,6 +27,15 @@ async def startup():
     vpn.rotate_interval = int(os.environ.get("ROTATE_INTERVAL", 0))
     vpn.rotate_country = os.environ.get("ROTATE_COUNTRY", None)
     asyncio.create_task(vpn.watchdog(interval=30))
+    # Auto-connect on startup
+    asyncio.create_task(_auto_connect())
+
+async def _auto_connect():
+    await asyncio.sleep(5)  # wait for API to be ready
+    country = os.environ.get("CONNECT_COUNTRY", None)
+    result = await vpn.connect(country=country)
+    if result.get("status") == "connected":
+        proxy.set_external("tun0")
 
 def _check_auth(authorization: str = Header(None)):
     token = None
